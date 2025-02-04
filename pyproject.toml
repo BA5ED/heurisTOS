@@ -1,0 +1,7 @@
+[project]
+name = "heuristos"
+version = "0.1.0"
+description = "Automatic Analysis of Legal Agreements"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
