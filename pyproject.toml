@@ -4,4 +4,14 @@ version = "0.1.0"
 description = "Automatic Analysis of Legal Agreements"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "beautifulsoup4>=4.13.3",
+    "click>=8.1.8",
+    "httpx>=0.28.1",
+    "loguru>=0.7.3",
+]
+
+[dependency-groups]
+dev = [
+    "isort>=6.0.0",
+]
