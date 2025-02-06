@@ -30,7 +30,7 @@ class Crawler:
 
     def resolve_link(self, link: str):
         if link.startswith('/'):
-            return urlparse(self.origin + '/' + link)
+            return urlparse(self.origin + link)
         if link.startswith('http'):
             return urlparse(link)
 
@@ -46,19 +46,23 @@ class Crawler:
     def crawl(self, keywords: list[str], content_keywords: list[str]):
         matched = []
 
+        # todo: this needs a lot of work
         while self._search_frontier:
             url = self._search_frontier.pop()
             resolved = self.resolve_link(url)
 
             if resolved.netloc != self._url.netloc:
                 logger.info("Skipping external {}...", resolved.geturl())
+                self._graph[resolved.netloc] = []
                 continue
 
-            # link
-
+            self._graph[url] = []
             page = self.load_page(resolved.geturl())
+
             for link in extract_links_with_keywords(str(page), keywords):
                 logger.info("Link found: {}", link)
-                self._search_frontier.insert(0, link)
+                if link not in self._graph:
+                    self._graph[url] += [self.resolve_link(link)]
+                    self._search_frontier.insert(0, link)
 
         return matched
