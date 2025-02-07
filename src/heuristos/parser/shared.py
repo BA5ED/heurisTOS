@@ -1,11 +1,11 @@
-
 from enum import Enum
 
 import attr
 
+
 class InputType(Enum):
-    Text = 'text'
-    HTML = 'html'
+    Text = "text"
+    HTML = "html"
 
 
 @attr.s()
@@ -29,4 +29,3 @@ class ParsedPolicy:
 #
 #     def dictionary(self):
 #         ...
-

@@ -1,23 +1,22 @@
+from urllib.parse import urlparse
+
 import bs4
 from bs4 import BeautifulSoup
-from loguru import logger
 from httpx import Client
-
-from urllib.parse import urlparse
+from loguru import logger
 
 
 def extract_links_with_keywords(html: str, keywords: list[str]):
-    soup = BeautifulSoup(html, 'html.parser')
+    soup = BeautifulSoup(html, "html.parser")
 
-    for a_tag in soup.find_all('a', href=True):
-        href = a_tag['href']
+    for a_tag in soup.find_all("a", href=True):
+        href = a_tag["href"]
         for keyword in keywords:
             if keyword in href:
                 yield href
 
 
 class Crawler:
-
     def __init__(self, url: str):
         self._url = urlparse(url)
         self._graph = dict()  # node -> [edges]
@@ -26,22 +25,22 @@ class Crawler:
 
     @property
     def origin(self):
-        return self._url.scheme + '://' + self._url.netloc
+        return self._url.scheme + "://" + self._url.netloc
 
     def resolve_link(self, link: str):
-        if link.startswith('/'):
+        if link.startswith("/"):
             return urlparse(self.origin + link)
-        if link.startswith('http'):
+        if link.startswith("http"):
             return urlparse(link)
 
-        return urlparse(self._url.geturl() + '/' + link)
+        return urlparse(self._url.geturl() + "/" + link)
 
     def load_page(self, url: str) -> bs4.PageElement:
         logger.info("Fetching {}...", url)
         response = self._client.get(url)
         response.raise_for_status()
 
-        return BeautifulSoup(response.text, 'html.parser')
+        return BeautifulSoup(response.text, "html.parser")
 
     def crawl(self, keywords: list[str], content_keywords: list[str]):
         matched = []
