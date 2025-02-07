@@ -16,3 +16,11 @@ dependencies = [
 dev = [
     "isort>=6.0.0",
 ]
+
+[build-system]
+requires = ["setuptools>=75.8.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["heuristos"]
+package-dir = {"" = "src"}
