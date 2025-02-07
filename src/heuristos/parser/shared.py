@@ -16,7 +16,7 @@ SubNodeUnion = Union["TextNode", "ParsedSection"]
 class TextNode:
     text: str = attr.ib()
 
-    def __dict__(self):
+    def to_dict(self):
         return {"content": self.text, "type": "text"}
 
 
@@ -25,10 +25,10 @@ class ParsedSection:
     name: str = attr.ib()
     content: list[SubNodeUnion] = attr.ib(factory=list)
 
-    def __dict__(self):
+    def to_dict(self):
         return {
             "name": self.name,
-            "content": [dict(c) for c in self.content],
+            "content": [c.to_dict() for c in self.content],
             "type": "section",
         }
 
@@ -39,9 +39,9 @@ class ParsedPolicy:
     title: str = attr.ib()
     content: list[SubNodeUnion] = attr.ib(factory=list)
 
-    def __dict__(self):
+    def to_dict(self):
         return {
             "title": self.title,
-            "content": [dict(c) for c in self.content],
+            "content": [c.to_dict() for c in self.content],
             "type": "policy",
         }

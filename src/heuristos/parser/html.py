@@ -76,6 +76,8 @@ class HTMLPolicyParser:
 
         parsed_sections = self._parse_content(lca_long_nodes)
 
+        return ParsedPolicy(title=assumed_title, content=parsed_sections)
+
     def _derive_title(self) -> str | None:
         header_precedence = self._derive_header_precedence()
         if not header_precedence:
@@ -148,17 +150,23 @@ class HTMLPolicyParser:
                     continue
                 frame[-1].content.append(TextNode(text=current.text))
 
+        return results
+
 
     def _derive_header_precedence(self) -> list[str]:
-        # Compute a histogram of node types that are typically used for headers.
-        headers = _find_headers(self._root_node)
-        histogram = _node_histogram(headers)
+        nodes = self._root_node.find_all(_HEADER_NODES + _SPANNABLE_HEADERS)
+        ranking = []
 
-        # Sort by popularity in increasing order
-        ranked = sorted(histogram.items(), key=lambda x: x[1], reverse=False)
+        for node in nodes:
+            if node.name in ranking:
+                continue
+            ranking.append(node.name)
 
-        # return only node types and not their numerical popularity.
-        return [r[0] for r in ranked]
+        return [
+            n for n in _HEADER_NODES
+            if n in ranking
+        ]
+
 
     def _lca(self, nodes: list[Tag]) -> Tag | None:
         """
@@ -169,15 +177,28 @@ class HTMLPolicyParser:
         if not nodes:
             return None
 
+        lookup_cache = {}
+
+        def hashcode(node: Tag):
+            return (node.sourceline, node.sourcepos).__hash__() if node else None
+
         # derive lineage of each input and then find the
         #  lowest node that is shared among them.
+
         ancestries = []
         for node in nodes:
             ancestry = []
-            parent = node.parent
-            while parent:
-                ancestry.append(parent)
-                parent = parent.parent
+
+            parent_node = node.parent
+            parent_hashcode = hashcode(parent_node)
+            lookup_cache[parent_hashcode] = parent_node
+
+            while parent_node:
+                ancestry.append(parent_hashcode)
+                parent_node = parent_node.parent
+                parent_hashcode = hashcode(parent_node)
+                lookup_cache[parent_hashcode] = parent_node
+
             ancestries.append(ancestry)
 
         common_ancestors = set(ancestries[0])
@@ -189,7 +210,7 @@ class HTMLPolicyParser:
         # iterate in depth order to determine lowest node.
         for node in ancestries[0]:
             if node in common_ancestors:
-                return node
+                return lookup_cache[node]
 
         return None
 
