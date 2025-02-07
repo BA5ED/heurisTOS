@@ -15,6 +15,10 @@ class HTMLPolicyParser:
     def stdrep(self) -> ParsedPolicy | None: ...
 
     def _LCA(self, nodes: list[BeautifulSoup]) -> BeautifulSoup | None:
+
+        if not nodes:
+            return None
+
         # derive lineage of each input and then find the
         # lowest node that is shared among them.
         ancestries = []
