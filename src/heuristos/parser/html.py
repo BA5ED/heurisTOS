@@ -1,15 +1,28 @@
+from typing import Iterator
+
 import attr
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, Tag, PageElement
+from loguru import logger
 
 from heuristos.parser.shared import ParsedPolicy, ParsedSection
 
+_TEXT_NODES = ["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "span", "a"]
+_HEADER_NODES = ["h1", "h2", "h3", "h4", "h5", "h6", "b", "strong"]
+_SPANNABLE_HEADERS = ["b", "strong"]
 
-_TEXT_NODES = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'span']
+
+def next_tag(iter: Iterator[PageElement]) -> Tag | None:
+    while not isinstance((node := next(iter)), Tag):
+        if node is None:
+            return None
+    return node
 
 
 def _find_headers(node: Tag):
-    header_nodes = node.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
-    return header_nodes
+    """
+    Find text nodes that are typically used for headers.
+    """
+    return node.find_all(_HEADER_NODES)
 
 
 def _node_histogram(nodes: list[Tag]) -> dict:
@@ -18,11 +31,26 @@ def _node_histogram(nodes: list[Tag]) -> dict:
         histogram[node.name] = histogram.get(node.name, 0) + 1
     return histogram
 
+def _is_spannable_header_inline(node: Tag) -> bool:
+    """
+    Heuristically detect if spannable header node type are shown inline.
+    This helps determine if, for example, a <strong> text node is being used as a header.
+    """
+    previous_tag = next_tag(node.previous_siblings)
+    successor_tag = next_tag(node.next_siblings)
+
+    if previous_tag is None or successor_tag is None:
+        return True
+    if (previous_tag.name, successor_tag) == ('br', 'br'):
+        return False
+
+    return True
+
 
 @attr.s()
 class HTMLPolicyParser:
     content: str = attr.ib()
-    _root_node: BeautifulSoup
+    _root_node: BeautifulSoup = attr.ib(init=False)
 
     def __attrs_post_init__(self):
         self._root_node = BeautifulSoup(self.content, "html.parser")
@@ -33,56 +61,82 @@ class HTMLPolicyParser:
         if not large_text_nodes:
             return None
 
-        lca = self._LCA(large_text_nodes)
-        if lca is None:
+        lca_long_nodes = self._LCA(large_text_nodes)
+        if lca_long_nodes is None:
             return None
 
-        headers = _find_headers(lca)
-        hhist = _node_histogram(headers)
-        ranked = sorted(hhist.items(), key=lambda x: x[1], reverse=True)
+        assumed_title = self._derive_title()
+        if assumed_title is None:
+            logger.warning("Could not derive title node for policy.")
 
-        likely_title = ranked[0][0]
-        likely_section = ranked[::-1][0][0]
+    def _derive_title(self) -> str | None:
+        header_precedence = self._derive_header_precedence()
+        if not header_precedence:
+            return None
+        # access the text of the first least common header type
+        return self._root_node.find(header_precedence[0]).text
 
-    def _derive_sections(self): ...
+    def _parse_sections(self) -> list[ParsedSection]:
+        header_precedence = self._derive_header_precedence()
+        if not header_precedence:
+            return None
+
+        if len(header_precedence) > 1:
+            # remove the header type that's already reserved for the title
+            del header_precedence[0]
+
+
+
+    def _derive_header_precedence(self) -> list[str]:
+        # Compute a histogram of node types that are typically used for headers.
+        headers = _find_headers(self._root_node)
+        histogram = _node_histogram(headers)
+
+        # Sort by popularity in increasing order
+        ranked = sorted(histogram.items(), key=lambda x: x[1], reverse=True)
+
+        # return only node types and not their numerical popularity.
+        return [r[0] for r in ranked]
 
     def _LCA(self, nodes: list[Tag]) -> Tag | None:
+        """
+        Derive the least common ancestor of two or more nodes.
+        """
+
         if not nodes:
             return None
 
         # derive lineage of each input and then find the
-        # lowest node that is shared among them.
+        #  lowest node that is shared among them.
         ancestries = []
         for node in nodes:
             ancestry = []
             parent = node.parent
             while parent:
                 ancestry.append(parent)
-                parent = node.parent
+                parent = parent.parent
             ancestries.append(ancestry)
 
         common_ancestors = set(ancestries[0])
 
+        # eliminate all disjoint ancestors
         for ancestry in ancestries[1:]:
             common_ancestors &= set(ancestry)
 
-        # iterate in depth order to determine lowest node
+        # iterate in depth order to determine lowest node.
         for node in ancestries[0]:
             if node in common_ancestors:
                 return node
 
         return None
 
-    def _find_long_text_nodes(self, min_length = 100):
+    def _find_long_text_nodes(self, min_length=100):
         """
         Identify nodes that contain significant amounts of direct, non-child text.
-        :param min_length:
-        :return:
         """
-
         result = []
 
-        for element in self._root_node.find_all(True):
+        for element in self._root_node.find_all(_TEXT_NODES):
             if element.string is None:
                 continue
 
