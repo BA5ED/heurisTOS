@@ -172,7 +172,6 @@ class HTMLPolicyParser:
         """
         Derive the least common ancestor of two or more nodes.
         """
-        logger.info("Running LCA...")
 
         if not nodes:
             return None
