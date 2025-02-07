@@ -4,10 +4,10 @@ import attr
 from bs4 import BeautifulSoup, Tag, PageElement
 from loguru import logger
 
-from heuristos.parser.shared import ParsedPolicy, ParsedSection
+from heuristos.parser.shared import ParsedPolicy, ParsedSection, TextNode, SubNodeUnion
 
 _TEXT_NODES = ["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "span", "a"]
-_HEADER_NODES = ["h1", "h2", "h3", "h4", "h5", "h6", "b", "strong"]
+_HEADER_NODES = ["h1", "h2", "h3", "h4", "h5", "h6"]
 _SPANNABLE_HEADERS = ["b", "strong"]
 
 
@@ -31,9 +31,10 @@ def _node_histogram(nodes: list[Tag]) -> dict:
         histogram[node.name] = histogram.get(node.name, 0) + 1
     return histogram
 
+
 def _is_spannable_header_inline(node: Tag) -> bool:
     """
-    Heuristically detect if spannable header node type are shown inline.
+    Heuristically detect if spannable header node types are shown inline.
     This helps determine if, for example, a <strong> text node is being used as a header.
     """
     previous_tag = next_tag(node.previous_siblings)
@@ -41,8 +42,12 @@ def _is_spannable_header_inline(node: Tag) -> bool:
 
     if previous_tag is None or successor_tag is None:
         return True
-    if (previous_tag.name, successor_tag) == ('br', 'br'):
+    if (previous_tag.name, successor_tag) == ("br", "br"):
         return False
+
+    # todo: heuristic: extract the lowest block element type in lineage chain,
+    #  and test if text value is equivalent to that of local node.
+    #  If it is, then by extension, the element is displayed in it's own line.
 
     return True
 
@@ -61,7 +66,7 @@ class HTMLPolicyParser:
         if not large_text_nodes:
             return None
 
-        lca_long_nodes = self._LCA(large_text_nodes)
+        lca_long_nodes = self._lca(large_text_nodes)
         if lca_long_nodes is None:
             return None
 
@@ -69,22 +74,79 @@ class HTMLPolicyParser:
         if assumed_title is None:
             logger.warning("Could not derive title node for policy.")
 
+        parsed_sections = self._parse_content(lca_long_nodes)
+
     def _derive_title(self) -> str | None:
         header_precedence = self._derive_header_precedence()
         if not header_precedence:
             return None
-        # access the text of the first least common header type
+        # access the text of the first least common header node type
         return self._root_node.find(header_precedence[0]).text
 
-    def _parse_sections(self) -> list[ParsedSection]:
+    def _parse_content(self, uniting: Tag) -> list[SubNodeUnion] | None:
+        logger.info("Parsing content...")
+
         header_precedence = self._derive_header_precedence()
+
         if not header_precedence:
             return None
 
         if len(header_precedence) > 1:
-            # remove the header type that's already reserved for the title
+            # remove the header type that we think is already reserved for the title.
             del header_precedence[0]
 
+        node_seq = uniting.find_all(_TEXT_NODES)
+
+        # frame indices are equivalent to that of header_precedence,
+        # and the length thereof should be less than or equal.
+
+        results = []
+
+        precedence_frame = [0]
+        frame = []
+        while len(node_seq) > 0:
+            current = node_seq.pop(0)
+
+            if current.name in header_precedence:
+                if (
+                    prec_index := header_precedence.index(current.name)
+                ) > precedence_frame[-1]:
+                    # we hit a header with lower precedence
+                    frame.append(ParsedSection(name=current.text, content=[]))
+                    precedence_frame.append(prec_index)
+                elif precedence_frame[-1] > prec_index:
+                    # precondition: we hit a header with greater precedence
+
+                    # we need to determine how far we should "collapse" the frame
+                    frame_index = precedence_frame.index(prec_index)
+
+                    if len(frame) == 1:
+                        results.append(frame.pop())
+                    else:
+                        for i in range(len(frame) - 2, frame_index - 2, -1):
+                            t = frame[i]
+                            c = frame[i + 1]
+                            t.content.append(c)
+                            frame.pop()
+                            precedence_frame.pop()
+
+                    # now, push a new ParsedSection onto the frame.
+                    frame.append(ParsedSection(name=current.text, content=[]))
+                    precedence_frame.append(prec_index)
+                else:
+                    # precondition: precedence is equivalent
+
+                    if len(frame) == 1:
+                        results.append(frame.pop())
+                    elif len(frame) >= 2:
+                        frame[-2].content.append(frame.pop())
+
+                    frame.append(ParsedSection(name=current.text, content=[]))
+            else:
+                if len(frame) == 0:
+                    results.append(TextNode(text=current.text))
+                    continue
+                frame[-1].content.append(TextNode(text=current.text))
 
 
     def _derive_header_precedence(self) -> list[str]:
@@ -93,15 +155,16 @@ class HTMLPolicyParser:
         histogram = _node_histogram(headers)
 
         # Sort by popularity in increasing order
-        ranked = sorted(histogram.items(), key=lambda x: x[1], reverse=True)
+        ranked = sorted(histogram.items(), key=lambda x: x[1], reverse=False)
 
         # return only node types and not their numerical popularity.
         return [r[0] for r in ranked]
 
-    def _LCA(self, nodes: list[Tag]) -> Tag | None:
+    def _lca(self, nodes: list[Tag]) -> Tag | None:
         """
         Derive the least common ancestor of two or more nodes.
         """
+        logger.info("Running LCA...")
 
         if not nodes:
             return None
